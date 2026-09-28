@@ -614,13 +614,23 @@ done
 opmd_log="$OUT/opmd.log"
 : > "$opmd_log"
 OPMD_FAILED=""
-opmd_mbuild() { # $1=subdir  rest=CONFIG args
+opmd_inject() { # $1=abs subdir  $2=defines (append ccflags; like fb_inject)
+  local f="$1/Kbuild"
+  [[ -f "$f" ]] || f="$1/Makefile"
+  [[ -s "$f" ]] && [[ -n "$(tail -c1 "$f")" ]] && echo >> "$f"
+  grep -q 'ccflags-y += -I$(src)' "$f" || echo 'ccflags-y += -I$(src)' >> "$f"
+  for d in $2; do
+    grep -qF -- "ccflags-y += -D$d=1" "$f" || echo "ccflags-y += -D$d=1" >> "$f"
+  done
+}
+opmd_mbuild() { # $1=M dir (absolute)  $2=extra Module.symvers  rest=CONFIG args
   local M="$1"; shift
+  local EXTRA="$1"; shift
   make -C "$KERNEL_DIR" O="$OUT" -j"$JOBS" ARCH=$ARCH \
     KERNEL_SRC="$KERNEL_DIR" KERNEL_ROOT="$KERNEL_DIR" \
-    KBUILD_EXTRA_SYMBOLS="$OUT/walt-extra.symvers" \
+    KBUILD_EXTRA_SYMBOLS="$OUT/walt-extra.symvers $EXTRA" \
     CONFIG_ARCH_PINEAPPLE=y \
-    M="$OPMD_DIR/$M" "$@" modules 2>&1 | tee -a "$opmd_log" || {
+    M="$M" "$@" modules 2>&1 | tee -a "$opmd_log" || {
       if [[ "$STRICT" == "1" ]]; then
         echo "ERROR: oplus-missing-drivers module $M failed"
         grep -nE "error:|fatal|undefined|no member|undeclared|cannot|No rule|No such" "$opmd_log" | head -40 || true
@@ -631,27 +641,49 @@ opmd_mbuild() { # $1=subdir  rest=CONFIG args
     }
 }
 
+# task_load/task_sched use kernel-relative OPLUS angle-includes that only
+# resolve when compiled from inside the tree. Re-point oplus_cpu at the
+# frameboost stage (full sched_assist/frame_boost headers) and give the build
+# root a fs/ symlink for `#include <../fs/proc/internal.h>`. They must build
+# with the SAME feature defines as frameboost sched_assist/frame_boost so the
+# shared OPLUS header structs match kABI.
+ln -sfn "$KERNEL_DIR/fs" "$ROOT/fs"
+ln -sfn "$FB_STAGE/oplus_cpu" "$KERNEL_DIR/oplus_cpu"
+mkdir -p "$FB_STAGE/oplus_cpu/sched"
+for d in task_load task_sched; do
+  ln -sfn "$OPMD_DIR/$d" "$FB_STAGE/oplus_cpu/sched/$d"
+done
+
 # oplus_bsp_midas: the GKI v1 variant, same 4 translation units the F5
 # oplus_bsp_midas.ko was built from (midas_dev/midas_ioctl/midas_module/
 # binder_stats_dev). BINDER_STATS_ENABLE must be on, otherwise
 # binder_stats_dev.c compiles to an empty object and midas_module.c fails to
 # link against binder_stats_dev_init().
 echo "[*] build oplus_bsp_midas"
-opmd_mbuild midas \
+opmd_mbuild "$OPMD_DIR/midas" "" \
   CONFIG_OPLUS_FEATURE_MIDAS_GKI=m \
   CONFIG_OPLUS_FEATURE_BINDER_STATS_ENABLE=y
 
-# proc-node stub that republishes the F5 oplus_afs_config interface
-echo "[*] build oplus_bsp_task_load"
-opmd_mbuild task_load CONFIG_OPLUS_FEATURE_TASK_LOAD=m
+# task_load/task_sched: build from the staged oplus_cpu path so the OPLUS
+# relative includes resolve, with the shared frameboost feature set injected.
+echo "[*] build oplus_bsp_task_load (staged into oplus_cpu/sched)"
+opmd_inject "$FB_DIR_SRC/sched/task_load" \
+  "CONFIG_OPLUS_SYSTEM_KERNEL_QCOM CONFIG_OPLUS_FEATURE_TASK_LOAD CONFIG_OPLUS_FEATURE_SCHED_ASSIST $FB_SCHED_FEAT"
+opmd_mbuild "$FB_DIR_SRC/sched/task_load" \
+  "$OUT/msym/sched_assist.symvers $OUT/msym/frame_boost.symvers $OUT/msym/eas_opt.symvers" \
+  CONFIG_OPLUS_FEATURE_TASK_LOAD=m
 
-echo "[*] build oplus_bsp_task_sched"
-opmd_mbuild task_sched CONFIG_OPLUS_FEATURE_TASK_SCHED=m
+echo "[*] build oplus_bsp_task_sched (staged into oplus_cpu/sched)"
+opmd_inject "$FB_DIR_SRC/sched/task_sched" \
+  "CONFIG_OPLUS_SYSTEM_KERNEL_QCOM CONFIG_OPLUS_FEATURE_TASK_SCHED CONFIG_OPLUS_FEATURE_SCHED_ASSIST $FB_SCHED_FEAT"
+opmd_mbuild "$FB_DIR_SRC/sched/task_sched" \
+  "$OUT/msym/sched_assist.symvers $OUT/msym/frame_boost.symvers $OUT/msym/eas_opt.symvers" \
+  CONFIG_OPLUS_FEATURE_TASK_SCHED=m
 
 for m in zram_opt bootprof shutdown_reason; do
   if [[ -d "$OPMD_DIR/$m" ]]; then
     echo "[*] build $m"
-    opmd_mbuild "$m"
+    opmd_mbuild "$OPMD_DIR/$m" ""
   fi
 done
 
