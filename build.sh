@@ -47,6 +47,15 @@ export OBJCOPY=llvm-objcopy
 export OBJDUMP=llvm-objdump
 export READELF=llvm-readelf
 
+# companion modules source -- cloned FIRST, because the display / touch / audio
+# techpacks are now taken from this repo and the guards below check them.
+# companion modules source
+if [[ ! -d "$MODULES_DIR/.git" ]]; then
+  echo "[*] clone companion modules: $MODULES_URL"
+  git clone --depth 1 -b "$MODULES_BRANCH" "$MODULES_URL" "$MODULES_DIR"
+fi
+ln -sfn "$MODULES_DIR" "$ROOT/sm8635-modules"
+
 mkdir -p "$OUT" "$MODDIR"
 mkdir -p "$DISPLAY_ROOT/msm"
 
@@ -74,12 +83,6 @@ EOF
 sed -i 's/^KBUILD_CFLAGS += -Werror$/KBUILD_CFLAGS += -Wno-error/' \
   "$KERNEL_DIR/scripts/Makefile.extrawarn"
 
-# companion modules source
-if [[ ! -d "$MODULES_DIR/.git" ]]; then
-  echo "[*] clone companion modules: $MODULES_URL"
-  git clone --depth 1 -b "$MODULES_BRANCH" "$MODULES_URL" "$MODULES_DIR"
-fi
-ln -sfn "$MODULES_DIR" "$ROOT/sm8635-modules"
 
 # ---- match kernelxc build (the kernel that currently BOOTS on the device) ----
 # so that msm_drm.ko / touch verbsmagic + modversions (CRC) equal the flashed
