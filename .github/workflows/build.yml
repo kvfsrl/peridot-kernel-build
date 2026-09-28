@@ -7,7 +7,10 @@ name: Build peridot msm_drm + DLKM
 # now-suspended `hoshikv/peridot-kernel-build` repo (see ../kernelsrc/08).
 # build.sh is the ORIGINAL script, unmodified except for sourcing the display,
 # touch and audio techpacks from GuidixX's modules repo instead of three
-# separate hoshikv checkouts that are no longer reachable.
+# separate hoshikv checkouts that are no longer reachable, and for letting
+# DISPLAY_URL/DISPLAY_REF point the display techpack at a pinned hoshikv
+# commit (FOD-HBM rebuild). When DISPLAY_URL is set it wins over the
+# display-drivers inside the modules repo.
 #
 # Every input repo here is PUBLIC, so no secrets are required.
 
@@ -23,6 +26,11 @@ env:
   KERNEL_REPO: GuidixX/kernel_xiaomi_sm8635
   KERNEL_BRANCH: "16.2"
   MODULES_BRANCH: "16.2"
+  # hoshikv FOD-HBM display techpack, pinned to one commit so msm_drm.ko is
+  # reproducible. build.sh clones this itself and it overrides the GuidixX
+  # display-drivers that ship inside the modules repo.
+  DISPLAY_URL: "https://github.com/kvfsrl/vendor_opensource_display-drivers-peridot.git"
+  DISPLAY_REF: "0cb34386dda03483d6896da09f857ca0be36f80d"
 
 jobs:
   build:
@@ -125,6 +133,8 @@ jobs:
           CLANG_DIR: /usr/lib/llvm-17
           CCACHE_DIR: ${{ github.workspace }}/.ccache
           MODULES_BRANCH: ${{ env.MODULES_BRANCH }}
+          DISPLAY_URL: ${{ env.DISPLAY_URL }}
+          DISPLAY_REF: ${{ env.DISPLAY_REF }}
         run: bash build.sh
 
       - name: Summary

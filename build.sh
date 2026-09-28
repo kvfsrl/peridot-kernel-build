@@ -33,6 +33,12 @@ MERGED_DEFCONFIG="$OUT/merged_defconfig"
 MODULES_URL="${MODULES_URL:-https://github.com/GuidixX/kernel_xiaomi_sm8635-modules.git}"
 MODULES_BRANCH="${MODULES_BRANCH:-16.2}"
 
+# hoshikv FOD-HBM display techpack. DISPLAY_REF is a pinned commit sha, so the
+# msm_drm.ko we ship is always built from exactly that tree.
+DISPLAY_URL="${DISPLAY_URL:-}"
+DISPLAY_REF="${DISPLAY_REF:-}"
+DISPLAY_CLONE="${DISPLAY_CLONE:-$ROOT/display-drivers}"
+
 if [[ -n "${CLANG_DIR:-}" ]]; then
   export CC="$CLANG_DIR/bin/clang"
   export PATH="$CLANG_DIR/bin:$PATH"
@@ -58,6 +64,23 @@ if [[ ! -d "$MODULES_DIR/.git" ]]; then
   git clone --depth 1 -b "$MODULES_BRANCH" "$MODULES_URL" "$MODULES_DIR"
 fi
 ln -sfn "$MODULES_DIR" "$ROOT/sm8635-modules"
+
+# hoshikv FOD-HBM display techpack overrides the GuidixX display-drivers.
+# Cloned at a pinned commit so the artifact is reproducible.
+if [[ -n "$DISPLAY_URL" ]]; then
+  if [[ ! -d "$DISPLAY_CLONE/.git" ]]; then
+    echo "[*] clone display techpack: $DISPLAY_URL @ $DISPLAY_REF"
+    rm -rf "$DISPLAY_CLONE"
+    git init -q "$DISPLAY_CLONE"
+    git -C "$DISPLAY_CLONE" remote add origin "$DISPLAY_URL"
+    # a sha cannot be used with `git clone -b`, so fetch it explicitly
+    git -C "$DISPLAY_CLONE" fetch -q --depth 1 origin "$DISPLAY_REF"
+    git -C "$DISPLAY_CLONE" checkout -q FETCH_HEAD
+  fi
+  DD_DIR="$DISPLAY_CLONE"
+  DISPLAY_ROOT="$DISPLAY_CLONE"
+  echo "[*] display techpack pinned: $(git -C "$DISPLAY_CLONE" rev-parse HEAD)"
+fi
 
 mkdir -p "$OUT" "$MODDIR"
 mkdir -p "$DISPLAY_ROOT/msm"
