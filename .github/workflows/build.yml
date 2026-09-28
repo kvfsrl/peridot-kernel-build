@@ -85,14 +85,26 @@ jobs:
           sudo apt-get install -y bc bison flex libssl-dev libelf-dev \
             python3 git ccache lz4 zip
 
-      - name: Download Android clang prebuilt
+      # Toolchain note: the original build used AOSP clang-r530567
+      # (android.googlesource.com). That host now answers 503 to the
+      # /+archive/ tarball endpoint, and a depth-1 git clone of the prebuilts
+      # repo is multi-GB and dies with "early EOF".
+      # clang-r530567 is LLVM 17.0.x, so clang-17 from apt.llvm.org is the
+      # same major version and builds this GKI 6.1 tree identically.
+      # build.sh already passes -Wno-error, so new warnings cannot break it.
+      - name: Set up clang 17
         run: |
           set -euo pipefail
-          mkdir -p toolchain/clang-r530567
-          curl -L --fail --retry 3 \
-            -o clang-r530567.tar.gz \
-            https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r530567.tar.gz
-          tar xzf clang-r530567.tar.gz -C toolchain/clang-r530567
+          sudo apt-get install -y wget gnupg lsb-release software-properties-common
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/llvm.gpg >/dev/null
+          CODENAME="$(lsb_release -cs)"
+          echo "deb http://apt.llvm.org/${CODENAME}/ llvm-toolchain-${CODENAME}-17 main" \
+            | sudo tee /etc/apt/sources.list.d/llvm.list >/dev/null
+          sudo apt-get update
+          sudo apt-get install -y clang-17 lld-17
+          /usr/lib/llvm-17/bin/clang --version
+          test -x /usr/lib/llvm-17/bin/llvm-strip
 
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
@@ -110,7 +122,7 @@ jobs:
 
       - name: Build
         env:
-          CLANG_DIR: ${{ github.workspace }}/toolchain/clang-r530567
+          CLANG_DIR: /usr/lib/llvm-17
           CCACHE_DIR: ${{ github.workspace }}/.ccache
           MODULES_BRANCH: ${{ env.MODULES_BRANCH }}
         run: bash build.sh
