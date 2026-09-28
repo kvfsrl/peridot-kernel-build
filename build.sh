@@ -610,6 +610,7 @@ fi
 for req in midas/Makefile task_load/Makefile task_sched/Makefile; do
   test -f "$OPMD_DIR/$req" || { echo "oplus-missing-drivers source missing: $req"; exit 1; }
 done
+echo "    oplus-missing-drivers @ $(git -C "$OPMD_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 
 opmd_log="$OUT/opmd.log"
 : > "$opmd_log"
