@@ -70,6 +70,13 @@ jobs:
           ref: main
           path: haptic-drivers
 
+      - name: Checkout oplus missing drivers
+        uses: actions/checkout@v4
+        with:
+          repository: kvfsrl/vendor_oplus-missing-drivers
+          ref: main
+          path: oplus-missing-drivers
+
       - name: Verify sources
         run: |
           set -euo pipefail

@@ -588,6 +588,72 @@ done < <(find "$HS_DIR/hybridswap_zram" -name '*.ko')
 for ko in "$OUT/hybridswap_modules"/*.ko; do llvm-strip --strip-debug "$ko" 2>/dev/null || true; done
 echo "    hybridswap modules: $(ls "$OUT/hybridswap_modules" 2>/dev/null | tr '\n' ' ')"
 
+# ---------- OPLUS missing drivers (out-of-tree) ----------
+# Oplus modules that ship on F5 (marble, k5.10) but have no peridot (k6.1)
+# equivalent in the stock tree. Ported from OnePlusOSS
+# android_kernel_modules_and_devicetree_oneplus_sm8650 @ sm8650_v_15.0.0_oneplus12
+# (Android 15 = kernel 6.1), plus a proc-node stub for oplus_afs_config.
+OPMD_DIR="${OPMD_DIR:-$ROOT/oplus-missing-drivers}"
+OPMD_URL="${OPMD_URL:-https://github.com/kvfsrl/vendor_oplus-missing-drivers}"
+echo "[*] oplus missing drivers ($OPMD_DIR)"
+if [[ ! -d "$OPMD_DIR/.git" ]]; then
+  git clone --depth 1 "$OPMD_URL" "$OPMD_DIR"
+fi
+for req in midas/Makefile afs_config/oplus_afs_config.c; do
+  test -f "$OPMD_DIR/$req" || { echo "oplus-missing-drivers source missing: $req"; exit 1; }
+done
+
+opmd_log="$OUT/opmd.log"
+: > "$opmd_log"
+OPMD_FAILED=""
+opmd_mbuild() { # $1=subdir  rest=CONFIG args
+  local M="$1"; shift
+  make -C "$KERNEL_DIR" O="$OUT" -j"$JOBS" ARCH=$ARCH \
+    KERNEL_SRC="$KERNEL_DIR" KERNEL_ROOT="$KERNEL_DIR" \
+    KBUILD_EXTRA_SYMBOLS="$OUT/walt-extra.symvers" \
+    CONFIG_ARCH_PINEAPPLE=y \
+    M="$OPMD_DIR/$M" "$@" modules 2>&1 | tee -a "$opmd_log" || {
+      if [[ "$STRICT" == "1" ]]; then
+        echo "ERROR: oplus-missing-drivers module $M failed"
+        grep -nE "error:|fatal|undefined|no member|undeclared|cannot|No rule|No such" "$opmd_log" | head -40 || true
+        exit 1
+      fi
+      echo "WARNING: oplus-missing-drivers module $M failed (continuing, STRICT=0)"
+      OPMD_FAILED="${OPMD_FAILED:-} $M"
+    }
+}
+
+# oplus_bsp_midas: the GKI v1 variant, same 4 translation units the F5
+# oplus_bsp_midas.ko was built from (midas_dev/midas_ioctl/midas_module/
+# binder_stats_dev). BINDER_STATS_ENABLE must be on, otherwise
+# binder_stats_dev.c compiles to an empty object and midas_module.c fails to
+# link against binder_stats_dev_init().
+echo "[*] build oplus_bsp_midas"
+opmd_mbuild midas \
+  CONFIG_OPLUS_FEATURE_MIDAS_GKI=m \
+  CONFIG_OPLUS_FEATURE_BINDER_STATS_ENABLE=y
+
+# proc-node stub that republishes the F5 oplus_afs_config interface
+echo "[*] build oplus_afs_config"
+opmd_mbuild afs_config
+
+for m in zram_opt bootprof shutdown_reason; do
+  if [[ -d "$OPMD_DIR/$m" ]]; then
+    echo "[*] build $m"
+    opmd_mbuild "$m"
+  fi
+done
+
+echo "    oplus-missing failures:${OPMD_FAILED:- none}"
+
+echo "[*] collect oplus-missing modules"
+mkdir -p "$OUT/opmd_modules"
+while IFS= read -r ko; do
+  [[ -f "$ko" ]] && cp "$ko" "$OUT/opmd_modules/"
+done < <(find "$OPMD_DIR" -name '*.ko' -newer "$OPMD_DIR/.git/HEAD" 2>/dev/null || find "$OPMD_DIR" -name '*.ko')
+for ko in "$OUT/opmd_modules"/*.ko; do llvm-strip --strip-debug "$ko" 2>/dev/null || true; done
+echo "    oplus-missing modules: $(ls "$OUT/opmd_modules" 2>/dev/null | tr '\n' ' ')"
+
 # ---------- collect all .ko into vendor_dlkm ----------
 echo "[*] collect all .ko into vendor_dlkm"
 KVER=$(ls -d "$OUT/lib/modules/"*/ 2>/dev/null | head -1 | xargs basename 2>/dev/null || echo "unknown")
@@ -616,6 +682,10 @@ done
 for ko in "$OUT/hybridswap_modules"/*.ko; do
   [[ -f "$ko" ]] && cp "$ko" "$MODDIR/"
 done
+# 2e) oplus missing drivers (midas, afs_config stub, zram_opt, ...)
+for ko in "$OUT/opmd_modules"/*.ko; do
+  [[ -f "$ko" ]] && cp "$ko" "$MODDIR/"
+done
 # the OPLUS hybridswap zram replaces the stock GKI zram.ko (same "zram" major).
 if ls "$MODDIR"/oplus_bsp_hybridswap_zram.ko >/dev/null 2>&1; then
   rm -f "$MODDIR/zram.ko"
@@ -632,6 +702,9 @@ echo "    total .ko: $(find "$MODDIR" -name '*.ko' | wc -l)"
 # frameboost/hybridswap modules must load in dependency order
 FB_ORDER="sched-walt oplus_bsp_schedtune oplus_bsp_sched_assist oplus_bsp_eas_opt oplus_bsp_frame_boost oplus_bsp_qos_sched cpufreq_uag ua_cpu_ioctl oplus_hans"
 HS_ORDER="crypto_zstdn oplus_bsp_lz4k oplus_bsp_hybridswap_zram"
+# standalone Oplus nodes, no inter-dependency -- listed first so they are
+# available before the frameboost/uad chain.
+OPMD_ORDER="oplus_afs_config oplus_bsp_midas oplus_bsp_zram_opt oplus_bootprof oplus_shutdown_reason"
 echo "[*] generate modules.load"
 {
   for b in $FB_ORDER; do
@@ -640,9 +713,13 @@ echo "[*] generate modules.load"
   for b in $HS_ORDER; do
     [[ -f "$MODDIR/$b.ko" ]] && echo "$b.ko"
   done
+  for b in $OPMD_ORDER; do
+    [[ -f "$MODDIR/$b.ko" ]] && echo "$b.ko"
+  done
   {
     printf '%s\n' $FB_ORDER | sed 's/$/.ko/'
     printf '%s\n' $HS_ORDER | sed 's/$/.ko/'
+    printf '%s\n' $OPMD_ORDER | sed 's/$/.ko/'
   } > "$MODDIR/.ordered"
   find "$MODDIR" -maxdepth 1 -name '*.ko' -printf '%f\n' | sort | \
     grep -vxFf "$MODDIR/.ordered"
@@ -668,6 +745,10 @@ echo ""
 if [[ -n "${FB_FAILED:-}" ]]; then
   echo "WARNING: these frameboost modules did NOT build:$FB_FAILED"
   echo "         every other artifact below is still valid."
+fi
+if [[ -n "${OPMD_FAILED:-}" ]]; then
+  echo "WARNING: these oplus-missing-drivers modules did NOT build:$OPMD_FAILED"
+  echo "         see $opmd_log"
 fi
 
 echo "========== BUILD COMPLETE =========="
