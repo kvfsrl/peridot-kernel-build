@@ -412,6 +412,9 @@ for pair in "sched_assist:sched_assist" "frame_boost:frame_boost" "qos_sched:qos
 done
 ln -sfn "$FB_DIR/uad"  "$FB_STAGE/oplus_cpu/uad"
 ln -sfn "$FB_DIR/hans" "$FB_STAGE/oplus_cpu/hans"
+# afs_config is standalone (no oplus_cpu headers); stage it so fb_mbuild can
+# address it as oplus_cpu/afs_config like the rest.
+ln -sfn "$FB_DIR/afs_config" "$FB_STAGE/oplus_cpu/afs_config"
 ln -sfn "$FB_STAGE/oplus_cpu" "$KERNEL_DIR/oplus_cpu"
 
 FB_DIR_SRC="$FB_STAGE/oplus_cpu"   # relative dirs below are under this
@@ -526,6 +529,11 @@ fb_cache uad
 echo "[*] build frameboost hans"
 fb_mbuild hans "" CONFIG_OPLUS_FEATURE_HANS=m CONFIG_OPLUS_SYSTEM_KERNEL_QCOM=y
 
+# oplus_afs_config: /proc/oplus_afs_config/{afs_config,afs_enable} for ColorOS
+# afsConfig.so. No sched/cpufreq dependency, so it can build any time.
+echo "[*] build frameboost afs_config"
+fb_mbuild afs_config "" CONFIG_OPLUS_FEATURE_AFS_CONFIG=m
+
 echo "[*] collect frameboost modules"
 mkdir -p "$OUT/frameboost_modules"
 while IFS= read -r ko; do
@@ -599,7 +607,7 @@ echo "[*] oplus missing drivers ($OPMD_DIR)"
 if [[ ! -d "$OPMD_DIR/.git" ]]; then
   git clone --depth 1 "$OPMD_URL" "$OPMD_DIR"
 fi
-for req in midas/Makefile afs_config/oplus_afs_config.c; do
+for req in midas/Makefile task_load/Makefile task_sched/Makefile; do
   test -f "$OPMD_DIR/$req" || { echo "oplus-missing-drivers source missing: $req"; exit 1; }
 done
 
@@ -634,8 +642,11 @@ opmd_mbuild midas \
   CONFIG_OPLUS_FEATURE_BINDER_STATS_ENABLE=y
 
 # proc-node stub that republishes the F5 oplus_afs_config interface
-echo "[*] build oplus_afs_config"
-opmd_mbuild afs_config
+echo "[*] build oplus_bsp_task_load"
+opmd_mbuild task_load CONFIG_OPLUS_FEATURE_TASK_LOAD=m
+
+echo "[*] build oplus_bsp_task_sched"
+opmd_mbuild task_sched CONFIG_OPLUS_FEATURE_TASK_SCHED=m
 
 for m in zram_opt bootprof shutdown_reason; do
   if [[ -d "$OPMD_DIR/$m" ]]; then
@@ -650,7 +661,7 @@ echo "[*] collect oplus-missing modules"
 mkdir -p "$OUT/opmd_modules"
 while IFS= read -r ko; do
   [[ -f "$ko" ]] && cp "$ko" "$OUT/opmd_modules/"
-done < <(find "$OPMD_DIR" -name '*.ko' -newer "$OPMD_DIR/.git/HEAD" 2>/dev/null || find "$OPMD_DIR" -name '*.ko')
+done < <(find "$OPMD_DIR" -name '*.ko')
 for ko in "$OUT/opmd_modules"/*.ko; do llvm-strip --strip-debug "$ko" 2>/dev/null || true; done
 echo "    oplus-missing modules: $(ls "$OUT/opmd_modules" 2>/dev/null | tr '\n' ' ')"
 
@@ -704,7 +715,7 @@ FB_ORDER="sched-walt oplus_bsp_schedtune oplus_bsp_sched_assist oplus_bsp_eas_op
 HS_ORDER="crypto_zstdn oplus_bsp_lz4k oplus_bsp_hybridswap_zram"
 # standalone Oplus nodes, no inter-dependency -- listed first so they are
 # available before the frameboost/uad chain.
-OPMD_ORDER="oplus_afs_config oplus_bsp_midas oplus_bsp_zram_opt oplus_bootprof oplus_shutdown_reason"
+OPMD_ORDER="oplus_afs_config oplus_bsp_midas oplus_bsp_task_load oplus_bsp_task_sched oplus_bsp_zram_opt oplus_bootprof oplus_shutdown_reason"
 echo "[*] generate modules.load"
 {
   for b in $FB_ORDER; do
