@@ -30,7 +30,7 @@ env:
   # reproducible. build.sh clones this itself and it overrides the GuidixX
   # display-drivers that ship inside the modules repo.
   DISPLAY_URL: "https://github.com/kvfsrl/vendor_opensource_display-drivers-peridot.git"
-  DISPLAY_REF: "0cb34386dda03483d6896da09f857ca0be36f80d"
+  DISPLAY_REF: "b7c6f9fe1aed014fac47c8ce15a9767ff4f8fcce"
 
 jobs:
   build:
