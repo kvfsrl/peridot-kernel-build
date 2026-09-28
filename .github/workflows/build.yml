@@ -1,0 +1,150 @@
+name: Build peridot msm_drm + DLKM
+
+# Rebuild of the kernel / driver stack for Xiaomi Redmi Turbo 3 (peridot,
+# Qualcomm SM8635, Android 14).
+#
+# Provenance: this workflow + build.sh are recovered from the run-logs of the
+# now-suspended `hoshikv/peridot-kernel-build` repo (see ../kernelsrc/08).
+# build.sh is the ORIGINAL script, unmodified except for sourcing the display,
+# touch and audio techpacks from GuidixX's modules repo instead of three
+# separate hoshikv checkouts that are no longer reachable.
+#
+# Every input repo here is PUBLIC, so no secrets are required.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  # must match the kernel that is flashed on the device, else vermagic/CRC differ
+  # and vendor_dlkm modules refuse to load
+  KMI: 6.1.175-android14-11-ga3b9c44908dd-ab13320413
+  KERNEL_REPO: GuidixX/kernel_xiaomi_sm8635
+  KERNEL_BRANCH: "16.2"
+  MODULES_BRANCH: "16.2"
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout build repo
+        uses: actions/checkout@v4
+
+      # GuidixX 16.2 ships SUBLEVEL 174; build.sh bumps it to 175 so the module
+      # CRC/vermagic matches the flashed kernelxc kernel.
+      - name: Checkout kernel
+        uses: actions/checkout@v4
+        with:
+          repository: GuidixX/kernel_xiaomi_sm8635
+          ref: ${{ env.KERNEL_BRANCH }}
+          path: kernel
+          fetch-depth: 0
+
+      - name: Checkout frameboost driver
+        uses: actions/checkout@v4
+        with:
+          repository: kvfsrl/vendor_frameboost-drivers
+          ref: main
+          path: frameboost-drivers
+
+      - name: Checkout hybridswap driver
+        uses: actions/checkout@v4
+        with:
+          repository: kvfsrl/vendor_oplus-hybridswap-driver
+          ref: main
+          path: hybridswap-driver
+
+      - name: Checkout haptic driver
+        uses: actions/checkout@v4
+        with:
+          repository: kvfsrl/vendor_opensource-haptic-driver-peridot
+          ref: main
+          path: haptic-drivers
+
+      - name: Verify sources
+        run: |
+          set -euo pipefail
+          for d in kernel frameboost-drivers hybridswap-driver haptic-drivers; do
+            test -d "$d/.git" || { echo "MISSING: $d"; exit 1; }
+            printf '%-20s %s\n' "$d" "$(git -C "$d" rev-parse HEAD)"
+          done
+
+      - name: Collect source SHAs
+        run: |
+          {
+            echo "KERNEL_SHA=$(git -C kernel rev-parse HEAD)"
+            echo "FB_SHA=$(git -C frameboost-drivers rev-parse HEAD)"
+            echo "HS_SHA=$(git -C hybridswap-driver rev-parse HEAD)"
+            echo "HAPTIC_SHA=$(git -C haptic-drivers rev-parse HEAD)"
+          } | tee -a "$GITHUB_ENV"
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison flex libssl-dev libelf-dev \
+            python3 git ccache lz4 zip
+
+      - name: Download Android clang prebuilt
+        run: |
+          set -euo pipefail
+          mkdir -p toolchain/clang-r530567
+          curl -L --fail --retry 3 \
+            -o clang-r530567.tar.gz \
+            https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r530567.tar.gz
+          tar xzf clang-r530567.tar.gz -C toolchain/clang-r530567
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: peridot-kernel-build
+          max-size: 8G
+          restore: true
+          verbose: 0
+          variant: ccache
+          save: true
+          append-timestamp: true
+          create-symlink: false
+          job-summary: CCache Statistics
+          update-package-index: false
+
+      - name: Build
+        env:
+          CLANG_DIR: ${{ github.workspace }}/toolchain/clang-r530567
+          CCACHE_DIR: ${{ github.workspace }}/.ccache
+          MODULES_BRANCH: ${{ env.MODULES_BRANCH }}
+        run: bash build.sh
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### out/" >> "$GITHUB_STEP_SUMMARY"
+          ls -la out/ 2>/dev/null >> "$GITHUB_STEP_SUMMARY"
+          echo "### .ko" >> "$GITHUB_STEP_SUMMARY"
+          find out -name '*.ko' 2>/dev/null | sort >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload kernel + all modules
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: peridot-kernel-${{ github.run_id }}
+          path: |
+            out/Image
+            out/Image.gz
+            out/msm_drm.ko
+            out/qti_battery_charger.ko
+            out/vendor_dlkm/**
+            out/touch_modules/*.ko
+            out/audio_modules/*.ko
+            out/haptic_modules/*.ko
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload build logs (debug)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ github.run_id }}
+          path: out/*.log
+          if-no-files-found: ignore
+          retention-days: 7
