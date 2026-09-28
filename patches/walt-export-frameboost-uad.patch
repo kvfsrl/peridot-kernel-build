@@ -1,0 +1,44 @@
+From: opencode
+Subject: [PATCH] walt: export six symbols needed by OPLUS FrameBoost uad
+
+The FrameBoost DLKM (kernel/oplus_cpu/uad: cpufreq_uag.ko and
+ua_cpu_ioctl.ko) references six walt symbols directly. Vanilla
+GuidixX/kernel_xiaomi_sm8635 branch 16.2 does not export any of them,
+so modpost fails with:
+
+    ERROR: modpost: "waltgov_cb_data"    [cpufreq_uag.ko] undefined!
+    ERROR: modpost: "walt_sched_clock"   [cpufreq_uag.ko] undefined!
+    ERROR: modpost: "sched_ravg_window"  [cpufreq_uag.ko] undefined!
+    ERROR: modpost: "cpu_util_freq_walt" [cpufreq_uag.ko] undefined!
+    ERROR: modpost: "walt_rq"            [cpufreq_uag.ko] undefined!
+    ERROR: modpost: "fmax_cap"           [cpufreq_uag.ko] undefined!
+
+The original peridot build ran against hoshikv/kernel_xiaomi_sm8635 at
+branch port-doze2, which exported these; that tree is no longer
+reachable. CONFIG_SCHED_WALT is built-in here, so exporting from walt
+to a module is valid. All six are already declared in walt.h, which
+fixup.c includes, so no header or Makefile change is needed -- fixup.o
+is already part of sched-walt.o.
+---
+ kernel/sched/walt/fixup.c | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/kernel/sched/walt/fixup.c b/kernel/sched/walt/fixup.c
+--- a/kernel/sched/walt/fixup.c	2026-09-28 17:58:52.470907131 +0700
++++ b/kernel/sched/walt/fixup.c	2026-09-28 17:58:52.472575694 +0700
+@@ -91,3 +91,15 @@
+ {
+ 	register_trace_android_rvh_show_max_freq(android_rvh_show_max_freq, NULL);
+ }
++
++/*
++ * Exports for out-of-tree OPLUS FrameBoost (uad).
++ * Referenced from cpufreq_uag_main.c via walt.h; modpost needs these
++ * in the module's symvers to resolve them.
++ */
++EXPORT_SYMBOL_GPL(walt_rq);
++EXPORT_SYMBOL_GPL(waltgov_cb_data);
++EXPORT_SYMBOL_GPL(walt_sched_clock);
++EXPORT_SYMBOL_GPL(cpu_util_freq_walt);
++EXPORT_SYMBOL_GPL(sched_ravg_window);
++EXPORT_SYMBOL_GPL(fmax_cap);

@@ -97,6 +97,19 @@ if grep -qE '^SUBLEVEL = 174$' "$KERNEL_DIR/Makefile"; then
 else
   echo "[*] Makefile SUBLEVEL already not 174; leave as-is: $(grep -E '^SUBLEVEL = ' "$KERNEL_DIR/Makefile")"
 fi
+# 1b) export walt symbols needed by OPLUS FrameBoost uad (cpufreq_uag/ua_cpu_ioctl)
+PATCH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/patches"
+if [[ -f "$PATCH_DIR/walt-export-frameboost-uad.patch" ]]; then
+  if patch -p1 -N --no-backup-if-mismatch -d "$KERNEL_DIR" \
+       < "$PATCH_DIR/walt-export-frameboost-uad.patch"; then
+    echo "[*] applied walt-export-frameboost-uad.patch"
+  else
+    echo "ERROR: walt-export-frameboost-uad.patch failed to apply"
+    echo "       (upstream walt/fixup.c may have changed -- refusing to continue)"
+    exit 1
+  fi
+fi
+
 # 2) KMI-compatible LOCALVERSION (same as Theettam/kernelxc) -> stock vendor_dlkm loads
 sed -i 's/^CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION="-android14-11-ga3b9c44908dd-ab13320413"/' \
   "$KERNEL_DIR/arch/$ARCH/configs/gki_defconfig"
