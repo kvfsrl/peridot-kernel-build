@@ -13,6 +13,9 @@ AD_DIR="${AD_DIR:-$MM/audio-kernel}"
 OUT="$ROOT/out"
 ARCH=arm64
 JOBS="${JOBS:-$(nproc --ignore=2)}"
+# STRICT=1 turns a single failed frameboost module into a fatal error.
+# Default 0 so one bad module does not throw away the whole artifact set.
+STRICT="${STRICT:-0}"
 VENDOR_DLKM="$OUT/vendor_dlkm"
 MODDIR="$VENDOR_DLKM/lib/modules"
 
@@ -364,6 +367,7 @@ echo "[*] frameboost drivers ($FB_DIR)"
 if [[ ! -d "$FB_DIR/.git" ]]; then
   git clone --depth 1 "$FB_URL" "$FB_DIR"
 fi
+FB_FAILED=""
 test -f "$FB_DIR/sched_assist/Makefile" || { echo "frameboost source missing (sched_assist)"; exit 1; }
 mkdir -p "$FB_STAGE/oplus_cpu/sched"
 for pair in "sched_assist:sched_assist" "frame_boost:frame_boost" "qos_sched:qos_sched" \
@@ -443,9 +447,13 @@ fb_mbuild() { # $1=rel dir  $2=extra Module.symvers  rest=CONFIG args
     KBUILD_EXTRA_SYMBOLS="$OUT/walt-extra.symvers $EXTRA" \
     CONFIG_ARCH_PINEAPPLE=y \
     M="$FB_DIR_SRC/$M" "$@" modules 2>&1 | tee -a "$OUT/frameboost.log" || {
-      echo "ERROR: frameboost module $M failed"
-      grep -nE "error:|fatal|undefined|no member|undeclared|cannot|No rule|No such" "$OUT/frameboost.log" | head -40 || true
-      exit 1
+      if [[ "$STRICT" == "1" ]]; then
+        echo "ERROR: frameboost module $M failed"
+        grep -nE "error:|fatal|undefined|no member|undeclared|cannot|No rule|No such" "$OUT/frameboost.log" | head -40 || true
+        exit 1
+      fi
+      echo "WARNING: frameboost module $M failed (continuing, STRICT=0)"
+      FB_FAILED="${FB_FAILED:-} $M"
     }
 }
 
@@ -621,6 +629,11 @@ echo "[*] vendor_dlkm.img packaging SKIPPED (only kernel Image + .ko modules dep
 echo "    vendor_dlkm contents at: $VENDOR_DLKM"
 
 echo ""
+if [[ -n "${FB_FAILED:-}" ]]; then
+  echo "WARNING: these frameboost modules did NOT build:$FB_FAILED"
+  echo "         every other artifact below is still valid."
+fi
+
 echo "========== BUILD COMPLETE =========="
 ls -la "$OUT/Image" "$OUT/Image.gz" "$OUT/msm_drm.ko" "$OUT/vendor_dlkm.img" 2>/dev/null || true
 ls -la "$OUT/qti_battery_charger.ko" "$OUT/touch_modules/"*.ko 2>/dev/null || true
