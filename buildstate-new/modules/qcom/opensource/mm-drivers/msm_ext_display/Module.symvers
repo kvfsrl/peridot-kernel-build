@@ -1,0 +1,4 @@
+0x3823ac6e	msm_ext_disp_register_audio_codec	/home/runner/work/peridot-kernel-build/peridot-kernel-build/modules/qcom/opensource/mm-drivers/msm_ext_display/msm_ext_display	EXPORT_SYMBOL	
+0x95a7ce76	msm_ext_disp_select_audio_codec	/home/runner/work/peridot-kernel-build/peridot-kernel-build/modules/qcom/opensource/mm-drivers/msm_ext_display/msm_ext_display	EXPORT_SYMBOL	
+0x65831e9f	msm_ext_disp_register_intf	/home/runner/work/peridot-kernel-build/peridot-kernel-build/modules/qcom/opensource/mm-drivers/msm_ext_display/msm_ext_display	EXPORT_SYMBOL	
+0x70796fc2	msm_ext_disp_deregister_intf	/home/runner/work/peridot-kernel-build/peridot-kernel-build/modules/qcom/opensource/mm-drivers/msm_ext_display/msm_ext_display	EXPORT_SYMBOL	
