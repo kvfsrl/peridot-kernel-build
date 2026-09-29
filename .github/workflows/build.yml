@@ -30,7 +30,7 @@ env:
   # reproducible. build.sh clones this itself and it overrides the GuidixX
   # display-drivers that ship inside the modules repo.
   DISPLAY_URL: "https://github.com/kvfsrl/vendor_opensource_display-drivers-peridot.git"
-  DISPLAY_REF: "ecbee21f6c5d1ed968e6173d9f60d46c6ace0444"
+  DISPLAY_REF: "82ec4f84667512e871982f0cad6ff6bf3616ded8"
 
 jobs:
   build:
@@ -177,3 +177,31 @@ jobs:
           path: out/*.log
           if-no-files-found: ignore
           retention-days: 7
+
+      # Build-state to rebuild msm_drm.ko (touch/audio too) OUT-OF-TREE without
+      # rerunning the full vmlinux+modules pass: kernel Module.symvers + config +
+      # generated headers + companion modules' symvers. Restore into a checkout at
+      # the SAME kernel SHA, then run fastbuild.sh (display-only `M=` step).
+      - name: Upload build state (fast out-of-tree rebuild)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: buildstate-peridot-kernel-${{ github.run_id }}
+          path: |
+            out/.config
+            out/Module.symvers
+            out/vmlinux.symvers
+            out/walt-extra.symvers
+            out/kernel-sha
+            out/kernel/sched/walt/Module.symvers
+            out/include/**
+            out/arch/arm64/include/**
+            out/scripts/**
+            modules/qcom/opensource/mm-drivers/sync_fence/Module.symvers
+            modules/qcom/opensource/mm-drivers/hw_fence/Module.symvers
+            modules/qcom/opensource/mm-drivers/msm_ext_display/Module.symvers
+            modules/qcom/opensource/mmrm-driver/driver/Module.symvers
+            modules/qcom/opensource/securemsm-kernel/Module.symvers
+            display-drivers/Module.symvers
+          if-no-files-found: warn
+          retention-days: 14
