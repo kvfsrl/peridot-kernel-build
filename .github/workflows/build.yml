@@ -182,6 +182,9 @@ jobs:
       # rerunning the full vmlinux+modules pass: kernel Module.symvers + config +
       # generated headers + companion modules' symvers. Restore into a checkout at
       # the SAME kernel SHA, then run fastbuild.sh (display-only `M=` step).
+      - name: Stage hidden config for artifact
+        if: always()
+        run: cp out/.config out/kbuild.config
       - name: Upload build state (fast out-of-tree rebuild)
         if: always()
         uses: actions/upload-artifact@v4
@@ -189,6 +192,7 @@ jobs:
           name: buildstate-peridot-kernel-${{ github.run_id }}
           path: |
             out/.config
+            out/kbuild.config
             out/Module.symvers
             out/vmlinux.symvers
             out/walt-extra.symvers

@@ -4,7 +4,8 @@
 #
 # After a full CI build, download the "buildstate-peridot-kernel-<run>" artifact
 # and unzip it into this repo root. It restores:
-#   out/.config, out/Module.symvers, out/include/**, out/arch/arm64/include/**,
+#   out/.config (CI stages it under out/kbuild.config; upload-artifact skips
+#   hidden files), out/Module.symvers, out/include/**, out/arch/arm64/include/**,
 #   out/scripts/** and the companion modules' Module.symvers (sync_fence,
 #   hw_fence, msm_ext_display, mmrm, securemsm) under modules/..., plus the
 #   display module's own Module.symvers under display-drivers/.
@@ -60,6 +61,11 @@ export LOCALVERSION=
 [[ -f "$KERNEL_DIR/Makefile" ]] || { echo "kernel tree missing at $KERNEL_DIR"; exit 1; }
 [[ -f "$DISPLAY_ROOT/msm/Kbuild" ]] || { echo "display source missing at $DISPLAY_ROOT/msm"; exit 1; }
 [[ -f "$OUT/Module.symvers" ]] || { echo "out/Module.symvers missing - restore the buildstate artifact first"; exit 1; }
+# upload-artifact skips the hidden out/.config, so CI stages it as out/kbuild.config
+[[ -f "$OUT/.config" ]] || [[ -f "$OUT/kbuild.config" ]] || { echo "out/.config missing"; exit 1; }
+if [[ ! -f "$OUT/.config" && -f "$OUT/kbuild.config" ]]; then
+  cp -f "$OUT/kbuild.config" "$OUT/.config"
+fi
 grep -q '^CONFIG_LOCALVERSION=' "$OUT/.config" || { echo "out/.config missing"; exit 1; }
 
 START=$(date +%s)
