@@ -59,9 +59,21 @@ export READELF=llvm-readelf
 # companion modules source -- cloned FIRST, because the display / touch / audio
 # techpacks are now taken from this repo and the guards below check them.
 # companion modules source
+# Clone into a scratch dir then merge: $MODULES_DIR already exists in the repo
+# (it tracks the */Module.symvers that KBUILD_EXTRA_SYMBOLS consumes), and
+# `git clone` refuses a non-empty destination, which failed the whole run.
 if [[ ! -d "$MODULES_DIR/.git" ]]; then
-  echo "[*] clone companion modules: $MODULES_URL"
-  git clone --depth 1 -b "$MODULES_BRANCH" "$MODULES_URL" "$MODULES_DIR"
+  if [[ -n "$(ls -A "$MODULES_DIR" 2>/dev/null)" ]]; then
+    echo "[*] merge companion modules into existing $MODULES_DIR"
+    _modules_tmp="$ROOT/.modules.tmp"
+    rm -rf "$_modules_tmp"
+    git clone --depth 1 -b "$MODULES_BRANCH" "$MODULES_URL" "$_modules_tmp"
+    cp -a "$_modules_tmp/." "$MODULES_DIR/"
+    rm -rf "$_modules_tmp"
+  else
+    echo "[*] clone companion modules: $MODULES_URL"
+    git clone --depth 1 -b "$MODULES_BRANCH" "$MODULES_URL" "$MODULES_DIR"
+  fi
 fi
 ln -sfn "$MODULES_DIR" "$ROOT/sm8635-modules"
 
